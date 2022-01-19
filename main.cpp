@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <unordered_set>
+#include <bitset>
 
 #define MODE_VAL  0
 #define MODE_PRES 1
@@ -35,8 +36,12 @@ struct simstate {
     int rem_ones;
     std::vector<std::vector<node*>> grid;
     std::vector<node*> unocc_w_val;
-    std::vector<std::vector<std::vector<int>>> startcluster_sets = 
-        std::vector<std::vector<std::vector<int>>>(9);
+    // 8-bit number, clockwise numbering
+    std::vector<std::vector<int>> cluster_sets = 
+        std::vector<std::vector<int>>(9);
+    // remove symmetries
+    std::vector<std::vector<int>> firstcluster_indices = 
+        std::vector<std::vector<int>>(9);
     std::vector<bool> stone_used;
     std::vector<std::vector<node*>> ones_list = {};
     int maxv = 1;
@@ -48,7 +53,8 @@ struct simstate {
     simstate(int grid_sz, int rem_ones, std::string path);
     ~simstate();
 
-    std::vector<std::vector<int>> init_startcluster(int n);
+    void init_clusters(int n);
+    void process_symmetries(int n, int cluster);
 
     void place_tile(int r, int c, int v);
     void unplace_tile(int r, int c);
@@ -61,9 +67,10 @@ struct simstate {
     void try_place_stone();
     void try_place_ones();
     void try_place_cluster(int r, int c, int v);
+    void try_place_firstcluster(int r, int c, int v);
 
     void step();
-    void save_maximum();
+    void save_maximum(bool newrecord);
 
     void write_blank(int dest);
     void write_state(int dest, bool app, int mode, std::vector<int> bounds);
@@ -100,7 +107,9 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
     }
 
     for (int i=2; i<9; ++i) {
-        startcluster_sets[i] = init_startcluster(i);
+        cluster_sets[i] = {};
+        firstcluster_indices[i] = {};
+        init_clusters(i);
     }   
 }
 
@@ -146,21 +155,46 @@ void print_combination(std::vector<int> &arr) {
     std::cout << std::endl;
 }
 
-std::vector<std::vector<int>> simstate::init_startcluster(int n) {
-    std::vector<std::vector<int>> possible;
-
+void simstate::init_clusters(int n) {
     std::vector<int> start = std::vector<int>(8, 0);
     for (int i=0; i<n; ++i) start[i] = 1;
     
     do {
         // print_combination(start);
-        start.insert(start.begin()+4, n);
-        possible.push_back(start);
-        start.erase(start.begin()+4);
+        int cluster = 0;
+        for (int i=0; i<8; ++i) cluster += start[i]*(1<<i);
+        if (std::find(cluster_sets[n].begin(), cluster_sets[n].end(), cluster) == cluster_sets[n].end()) {
+            firstcluster_indices[n].push_back(cluster_sets[n].size());
+            process_symmetries(n, cluster);
+        }
+        
     } while (next_combination(start));
-    return possible;
 }
 
+void simstate::process_symmetries(int n, int cluster) {
+    // std::cout << (n) << ": " <<  std::bitset<8>(cluster) << std::endl;
+    std::unordered_set<int> syms;
+    for(int q=0; q<4; ++q) {
+        // std::cout << (n) << ":--- " <<  std::bitset<8>(cluster) << std::endl;
+        syms.insert(cluster);
+        cluster <<=2;
+        int ovf = cluster - (cluster %256);
+        cluster = cluster%256 + (ovf>>8);
+    }
+    int refl = 0;
+    refl += ((cluster & (1)) << 2) + ((cluster & (1<<2)) >> 2)
+            + ((cluster & (1<<7)) >> 4) + ((cluster & (1<<3)) << 4)
+            + ((cluster & (1<<6)) >> 2) + ((cluster & (1<<4)) << 2)
+            + (cluster & ((1<<1) + (1<<5)));
+    for (int q=0; q<4; ++q) {
+        // std::cout << (n) << ":||| " <<  std::bitset<8>(refl) << std::endl;
+        syms.insert(refl);
+        refl <<=2;
+        int ovf = refl - (refl %256);
+        refl = refl%256 + (ovf>>8);
+    }
+    for (int cl : syms) cluster_sets[n].push_back(cl);
+}
 
 // Updates the value of the tile node at (r,c). 
 // Updates the level in neighboring cells. 
@@ -187,7 +221,7 @@ void simstate::place_tile(int r, int c, int v) {
         for (int cp = c-2; cp <= c+2; ++cp) {
             if (rp == r-2 || rp == r+2 || cp == c-2 || cp == c+2) {
                 ++grid[rp][cp]->onesscore;
-                if (grid[rp][cp]->onesscore == 1) newly_acsble_1s.push_back(grid[rp][cp]);
+                if (grid[rp][cp]->onesscore == 1 && !(grid[rp][cp]->val)) newly_acsble_1s.push_back(grid[rp][cp]);
             }
         }
     }
@@ -198,7 +232,7 @@ void simstate::unplace_tile(int r, int c) {
     ones_list.pop_back();
     for (int rp = r+1; rp >= r-1; --rp) {
         for (int cp = c+1; cp >= c-1; --cp) {
-            if (!(rp == r && cp == c)) {
+            if ((rp - r) || (cp - c)) {
                 adjust(rp, cp, -grid[r][c]->val);
                 // std::cout << rp << " " << cp  << std::endl;
             }
@@ -245,25 +279,46 @@ void simstate::adjust(int r, int c, int dv) {
     
 }
 
-// TODO: UNDO PLACING CLUSTERS
+// Converts between cluster encoding to offset from top-left
+std::pair<int, int> code_to_coord(int index) {
+    switch (index) {
+    case 0: return {0,0};
+    case 1: return {0,1};
+    case 2: return {0,2};
+    case 3: return {1,2};
+    case 4: return {2,2};
+    case 5: return {2,1};
+    case 6: return {2,0};
+    case 7: return {1,0};
+    }
+    assert((false));
+}
+
 // Handles placing clusters
 void simstate::place_cluster(int r, int c, int v, int index) {
-    std::vector<int> cluster = startcluster_sets[v][index];
+    int cluster = cluster_sets[v][index];
     int i = 0;
-    for (int rp=0; rp<3; ++rp) {
-        for (int cp=0; cp<3; ++cp) {
-            grid[r+rp][c+cp]->val = cluster[i];
-            // Update levels
+    for (int i=0; i<8; ++i) {
+        std::pair<int, int> coords = code_to_coord(i);
+        int rp=coords.first, cp=coords.second;
+        if (cluster & (1<<i)) {
+            grid[r+rp][c+cp]->val = 1;
             for (int dr=-1; dr<=1; ++dr) {
                 for (int dc=-1; dc<=1; ++dc) {
                     if (dr || dc) {
-                        adjust(r+rp+dr, c+cp+dc, cluster[i]);
+                        adjust(r+rp+dr, c+cp+dc,1);
                     }
                 }
             }
-            // Add ones (to double count later)
-            ++grid[r+rp][c+cp]->onesscore;
-            ++i;
+        }
+        ++grid[r+rp][c+cp]->onesscore;
+    }
+    grid[r+1][c+1]->val = v;
+    for (int dr=-1; dr<=1; ++dr) {
+        for (int dc=-1; dc<=1; ++dc) {
+            if (dr || dc) {
+                adjust(r+1+dr, c+1+dc, v);
+            }
         }
     }
 
@@ -279,7 +334,7 @@ void simstate::place_cluster(int r, int c, int v, int index) {
     for (int rp=r-2; rp<r+5; ++rp) {
         for (int cp=c-2; cp<c+5; ++cp) {
             ++grid[rp][cp]->onesscore;
-            if (grid[rp][cp]->onesscore == 1) newly_acsble_1s.push_back(grid[rp][cp]);
+            if (grid[rp][cp]->onesscore == 1 && !(grid[rp][cp]->val)) newly_acsble_1s.push_back(grid[rp][cp]);
 
         }
     }
@@ -322,9 +377,10 @@ void simstate::place_ones(std::vector<int> &choice_arr) {
             node* n = ones_list.back()[i];
             assert((!n->val));
             n->val = 1;
+            --rem_ones;
             for (int dr=-1; dr<=1; ++dr) {
                 for (int dc=-1; dc<=1; ++dc) {
-                    if (!dr || !dc) adjust(dr+n->r, dc+n->c, 1);
+                    if (dr || dc) adjust(dr+n->r, dc+n->c, 1);
                 }
             }
             for (int dr = -2; dr <= 2; ++dr) {
@@ -348,14 +404,15 @@ void simstate::place_ones(std::vector<int> &choice_arr) {
 void simstate::unplace_ones(std::vector<int> &choice_arr) {
     ones_list.pop_back();
     std::unordered_set<uintptr_t> update_set;
-    for (int i=0; i<choice_arr.size(); ++i) {
+    for (int i=choice_arr.size()-1; i>=0; --i) {
         if (choice_arr[i]) {
             node* n = ones_list.back()[i];
             assert((n->val == 1));
             n->val = 0;
-            for (int dr=-1; dr<=1; ++dr) {
-                for (int dc=-1; dc<=1; ++dc) {
-                    if (!dr || !dc) adjust(dr+n->r, dc+n->c, -1);
+            ++rem_ones;
+            for (int dr=1; dr>=-1; --dr) {
+                for (int dc=1; dc>=-1; --dc) {
+                    if (dr || dc) adjust(dr+n->r, dc+n->c, -1);
                 }
             }
             for (int dr = -2; dr <= 2; ++dr) {
@@ -384,7 +441,7 @@ void simstate::write_state(int dest, bool app=true, int mode=MODE_VAL, std::vect
     if (bounds.empty()) bounds = {0, grid_sz, 0, grid_sz};
 
     int digits = ceil(log10(maxv))+1;
-    std::string horizontal_border = std::string((size_t)(digits+1)*(bounds[3]-bounds[2])+1, '_');
+    std::string horizontal_border = std::string((size_t)(digits+1)*(bounds[3]-bounds[2])+1, '-');
 
     if (mode == MODE_VAL) of << "values\n";
     if (mode == MODE_PRES) of << "level\n";
@@ -418,8 +475,8 @@ void simstate::write_unocc(int dest, int lvl, bool app=true) {
     of << "LEVEL = " << lvl << ": ";
     node* cur = unocc_w_val[lvl]->next;
     while (cur) {
-        // assert((cur->level == lvl));
-        of << "(" << cur->r << ", " << cur->c << ") ";
+        assert((cur->level == lvl));
+        if (!cur->val) of << "(" << cur->r << ", " << cur->c << ") ";
         cur = cur->next;
     }
     of << '\n';
@@ -461,10 +518,9 @@ void simstate::write_state_trimmed(int dest, bool app=true, int mode=MODE_VAL) {
             }
         }
     }
-    std::cerr << u << d << l << r << std::endl;
+    // std::cerr << u << d << l << r << std::endl;
     write_state(dest, app, mode, {u,d,l,r});
 }
-
 
 void simstate::write_possible_ones(int dest, bool app=true) {
     std::string path = dest == TO_LOG ? log_path : result_path;
@@ -478,7 +534,7 @@ void simstate::write_possible_ones(int dest, bool app=true) {
     }
 
     int digits = ceil(log10(maxv))+1;
-    std::string horizontal_border = std::string((size_t)(digits+1)*grid_sz+1, '_');
+    std::string horizontal_border = std::string((size_t)(digits+1)*grid_sz+1, '-');
     of << horizontal_border << '\n';
     for (int r=0; r<grid_sz; ++r) {
         of << '|';
@@ -495,12 +551,12 @@ void simstate::write_possible_ones(int dest, bool app=true) {
     of.close();
 }
 
-void simstate::save_maximum() {
+void simstate::save_maximum(bool newrecord) {
     maxv = cur_stone-1;
-    write_state_trimmed(TO_RESULT, true);
+    write_state_trimmed(TO_RESULT, !newrecord);
     std::ofstream of;
     of.open(result_path, std::ios::app);
-    of << "CURRENT BEST\n";
+    of << "CURRENT BEST : " << maxv << "\n";
     of.close();
 }
 
@@ -509,17 +565,19 @@ void simstate::save_maximum() {
 
 void simstate::try_place_stone() {
     // write_state(true);
-    write_stones_used(TO_LOG, 50, true);
+    // write_stones_used(TO_LOG, 50, true);
+    // write_possible_ones(TO_LOG, true);
+    // std::cerr << "STONE: " << cur_stone << std::endl;
     int old_cur_stone = cur_stone;
+    // maxv = std::max(maxv, cur_stone);
     while(stone_used[cur_stone]) ++cur_stone;
     node* cur = unocc_w_val[cur_stone]->next;
     
     if (!cur) {
-        if (cur_stone-1 >= maxv) save_maximum();
+        if (cur_stone-1 >= maxv) save_maximum(cur_stone-1>maxv);
         cur_stone = old_cur_stone;
         return;
     }
-
     // write_unocc(cur_stone, true);
     
     while (cur) {
@@ -536,23 +594,33 @@ void simstate::try_place_stone() {
 
 void simstate::try_place_ones() {
     int n_options = ones_list.back().size();
+    // std::cerr << "CHOICES: " << n_options << std::endl;
+    // write_possible_ones(TO_LOG, true);
     // if (!rem_ones || !n_options) return;
 
     for (int cnt=1; cnt<=rem_ones; ++cnt) {
         std::vector<int> choice_arr = std::vector<int>(n_options, 0);
         for (int i=0; i<cnt; ++i) choice_arr[i] = 1;
         do {
-            // place_ones(choice_arr);
+            // print_combination(choice_arr);
+            place_ones(choice_arr);
             step();
-            // unplace_ones(choice_arr);
+            unplace_ones(choice_arr);
         } while (next_combination(choice_arr));
     }
 }
 
 void simstate::try_place_cluster(int r, int c, int v) {
-    for (int i=0; i<
-    startcluster_sets[v].size()
-    ; ++i) {
+    for (int i=0; i<cluster_sets[v].size(); ++i) {
+        place_cluster(r, c, v, i);
+        step();
+        unplace_cluster(r, c);
+    }
+}
+
+void simstate::try_place_firstcluster(int r, int c, int v) {
+    for (int i: firstcluster_indices[v]) {
+        std::cerr << std::bitset<8>(cluster_sets[v][i]) << std::endl;
         place_cluster(r, c, v, i);
         step();
         unplace_cluster(r, c);
@@ -560,12 +628,17 @@ void simstate::try_place_cluster(int r, int c, int v) {
 }
 
 
+
 void simstate::step() {
     // A FEW OPTIONS
     // -- place tile cur
     // -- if 'ones > 0', place isolated 1 in the fresh outer border
-    //if (rem_ones && ones_list.back().size()) try_place_ones();
+
+    // NOT DONE: placing cluster
+    if (rem_ones && ones_list.back().size()) try_place_ones();
     try_place_stone();
+    
+    
 }
 
 
@@ -583,6 +656,7 @@ void test() {
 
     simstate state = simstate(10, n_pebbles, out);
     state.place_cluster(3, 3, 2, 6);
+    state.write_blank(TO_LOG);
     state.write_state(TO_LOG);
     state.write_state(TO_LOG, true, MODE_PRES);
     state.write_unocc(TO_LOG, 3, true);
@@ -624,6 +698,7 @@ void cluster_test() {
     int grid_sz = 21;
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.place_cluster(3,3,2,6);
+    state.write_blank(TO_LOG);
     state.write_state(TO_LOG);
     state.write_state(TO_LOG, true, MODE_PRES);
     state.place_tile(4,3,3);
@@ -645,7 +720,7 @@ void simple_loop() {
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.write_blank(TO_LOG);
     state.write_blank(TO_RESULT);
-    state.try_place_cluster(10,10,2);
+    state.try_place_firstcluster(10,10,2);
 }
 
 void test_ones() {
@@ -656,31 +731,180 @@ void test_ones() {
     state.write_blank(TO_LOG);
     state.write_possible_ones(TO_LOG);
     state.place_cluster(4, 4, 2, 0);
-    state.write_state(TO_LOG);
+    // state.write_state(TO_LOG);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+
     std::vector<int> choice_arr = {1};
     state.place_ones(choice_arr);
-    state.write_state(TO_LOG);
+    // state.write_state(TO_LOG);
     state.write_possible_ones(TO_LOG);
-    state.place_tile(5,6,3);
-    state.write_state(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+
+    state.place_tile(4,6,3);
+    // state.write_state(TO_LOG);
     state.write_possible_ones(TO_LOG);
-    state.unplace_tile(5,6);
-    state.write_state(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+
+    state.place_tile(3,6,4);
+    // state.write_state(TO_LOG);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+
+    state.unplace_tile(3,6);
+    // state.write_state(TO_LOG);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+
+    state.unplace_tile(4,6);
+    // state.write_state(TO_LOG);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+
     state.unplace_ones(choice_arr);
-    state.write_state(TO_LOG);
+    // state.write_state(TO_LOG);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
 }
 
+void three_stones() {
+    std::string path = "testlogs/three_stones";
+    int n_pebbles = 3;
+    int rad = ceil(log2f64(174*n_pebbles));
+    int grid_sz = 40;
+    simstate state = simstate(grid_sz, n_pebbles, path);
+    state.write_blank(TO_LOG);
+    state.write_blank(TO_RESULT);
+    // state.try_place_firstcluster(grid_sz/2,grid_sz/2,2);
+    
+    state.place_cluster(grid_sz/2, grid_sz/2, 2, state.firstcluster_indices[2][3]);
+    state.step();
+
+    // try with 3 cluster
+}
+
+void three_stones_debug() {
+    std::string path = "testlogs/three_stones_debug";
+    int n_pebbles = 3;
+    int rad = ceil(log2f64(174*n_pebbles));
+    int grid_sz = 14;
+    simstate state = simstate(grid_sz, n_pebbles, path);
+    state.write_blank(TO_LOG);
+    state.place_cluster(6,4,2,state.firstcluster_indices[2][3]);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(6,5,3);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(5,6,4);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(5,7,5);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(7,4,6);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(8,3,7);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(9,3,8);
+    state.write_possible_ones(TO_LOG);
+
+    state.place_tile(4,6,9);
+    state.write_possible_ones(TO_LOG);
+
+    std::vector<int> choice_arr = {1,0,0,0,0};
+    state.place_ones(choice_arr);
+    state.write_state(TO_LOG);
+    state.write_unocc(TO_LOG, 10);
+
+    state.place_tile(3,5,10);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 11);
+
+    state.place_tile(2,5,11);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 12);
+
+    state.place_tile(1,4,12);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 13);
+
+    state.place_tile(2,3,13);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 14);
+
+    state.place_tile(3,3,14);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 15);
+
+    state.place_tile(8,2,15);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 16);
+
+    state.place_tile(9,4,16);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 17);
+
+    state.place_tile(9,5,17);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 18);
+
+    state.place_tile(4,7,18);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 19);
+    
+    state.place_tile(8,6,19);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 20);
+
+    state.place_tile(7,7,20);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 21);
+
+    state.place_tile(2,6,21);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 22);
+
+    state.place_tile(7,2,22);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 23);
+
+    state.place_tile(4,8,23);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 24);
+
+    state.place_tile(4,4,24);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 25);
+
+    state.place_tile(6,8,25);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 26);
+
+    state.place_tile(1,3,26);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 27);
+
+    state.place_tile(3,2,27);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 28);
+
+    state.place_tile(6,3,28);
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 29);
+}
 
 void run_test_suite() {
-    // test();
-    // cluster_test();
-    // simple_loop();
+    test();
+    cluster_test();
+    simple_loop();
     test_ones();
 }
 
 int main() {
     run_test_suite();
+    three_stones_debug();
+    three_stones();
 }
