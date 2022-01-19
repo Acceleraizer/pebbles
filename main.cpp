@@ -6,15 +6,18 @@
 #include <vector>
 #include <queue>
 #include <algorithm>
-#include <unordered_map>
+#include <cassert>
+
+#define MODE_VAL  0
+#define MODE_PRES 1
 
 
 struct node {
     int val = 0;
-    int pressure = 0;
+    int level = 0;
     int onesscore = 0;
-    node* prev;
-    node* next;
+    node* prev = nullptr;
+    node* next = nullptr;
 
     int r,c;
 
@@ -31,7 +34,7 @@ struct simstate {
 
     int rem_ones;
     std::vector<std::vector<node*>> grid;
-    std::vector<node*> newly_acsble_1s;
+    std::vector<node*> newly_acsble_1s = {};
     std::vector<node*> unocc_w_val;
     std::vector<std::vector<std::vector<int>>> startcluster_sets = 
         std::vector<std::vector<std::vector<int>>>(9);
@@ -42,10 +45,11 @@ struct simstate {
     std::vector<std::vector<int>> init_startcluster(int n);
 
     void place_tile(int r, int c, int v);
-    void adjust(int r, int c, int v);
+    void adjust(int r, int c, int dv);
     void place_cluster(int r, int c, int v, int index);
 
-    void print_state(std::string fn);
+    void write_state(std::string fn, bool app, int mode);
+    void write_unocc(std::string fn, int lvl, bool app);
 };
 
 
@@ -53,20 +57,31 @@ simstate::simstate(int grid_sz, int rem_ones) {
     this->grid_sz = grid_sz;
     this->rem_ones = rem_ones;
 
+    //initialize the ladder
+    for (int i=0; i< 174*rem_ones; i++) {
+        node* newnnode = new node(-1, -1);
+        unocc_w_val.push_back(newnnode);
+    }
+
     grid = std::vector<std::vector<node*>>(grid_sz, std::vector<node*>(grid_sz));
     for (int r=0; r<grid_sz; ++r) {
         for (int c=0; c<grid_sz; ++c) {
             grid[r][c] = new node(r, c);
+            grid[r][c]->next = unocc_w_val[0]->next;
+            grid[r][c]->prev = unocc_w_val[0];
+            if (unocc_w_val[0]->next) unocc_w_val[0]->next->prev = grid[r][c];
+            unocc_w_val[0]->next = grid[r][c];
         }
     }
 
     for (int i=2; i<9; ++i) {
         startcluster_sets[i] = init_startcluster(i);
-    }
+    }   
 }
 
 simstate::~simstate() {
     for (auto r: grid) for (node* n: r) delete n;
+    for (node* n: unocc_w_val) delete n;
 }
 
 bool next_combination (std::vector<int> &arr) {
@@ -123,7 +138,7 @@ std::vector<std::vector<int>> simstate::init_startcluster(int n) {
 
 
 // Updates the value of the tile node at (r,c). 
-// Updates the pressure in neighboring cells. 
+// Updates the level in neighboring cells. 
 // Creates a new list of possible 1-positions if there are 1s remaining.
 void simstate::place_tile(int r, int c, int v) {
     int diff = v - grid[r][c]->val;
@@ -131,7 +146,7 @@ void simstate::place_tile(int r, int c, int v) {
     for (int rp = r-1; rp <= r+1; ++rp) {
         for (int cp = c-1; cp <= c+1; ++cp) {
             if (!(rp == r && cp == c) && !grid[rp][cp]->val) {
-                adjust(rp, cp, grid[rp][cp]->val + diff);
+                adjust(rp, cp, diff);
             }
         }
     }
@@ -152,43 +167,86 @@ void simstate::place_tile(int r, int c, int v) {
 }
 
 // Always inserts at the head of list (becomes the node pointed to by unocc_w_val[i]->next)
-void simstate::adjust(int r, int c, int v) {
+// Updates the level
+void simstate::adjust(int r, int c, int dv) {
     if (grid[r][c]->next) {
         grid[r][c]->prev->next = grid[r][c]->next;
         grid[r][c]->next->prev = grid[r][c]->prev;
     } else {
         grid[r][c]->prev->next = nullptr;
     }
+    grid[r][c]->level += dv;
+    int v = grid[r][c]->level;
 
     grid[r][c]->next = unocc_w_val[v]->next;
     if (grid[r][c]->next) grid[r][c]->next->prev = grid[r][c];
     unocc_w_val[v]-> next = grid[r][c];
     grid[r][c]->prev = unocc_w_val[v];
-    grid[r][c]->val = v;
+    // grid[r][c]->level += dv;
 }
 
 
+// Handles placing clusters
+void simstate::place_cluster(int r, int c, int v, int index) {
+    std::vector<int> cluster = startcluster_sets[v][index];
+    int i = 0;
+    for (int rp=0; rp<3; ++rp) {
+        for (int cp=0; cp<3; ++cp) {
+            grid[r+rp][c+cp]->val = cluster[i];
+            // Update levels
+            for (int dr=-1; dr<=1; ++dr) {
+                for (int dc=-1; dc<=1; ++dc) {
+                    if (dr || dc) {
+                        adjust(r+rp+dr, c+cp+dc, cluster[i]);
+                    }
+                }
+            }
+            ++i;
+        }
+    }
+}
 
 
 
 // printing for visualization
-void simstate::print_state(std::string fn) {
-    std::ofstream outfile;
-    outfile.open(fn);
+void simstate::write_state(std::string fn, bool app=false, int mode=MODE_VAL) {
+    std::ofstream of;
+    if (app) of.open(fn, std::ios::app);
+    else of.open(fn);
+
     int digits = ceil(log10(maxv))+1;
-    outfile << std::setw(digits);
+    of << std::setw(digits);
 
     std::string horizontal_border = std::string((size_t)(digits+1)*grid_sz+1, '_');
 
-    outfile << horizontal_border << '\n';
+    if (mode == MODE_VAL) of << "values\n";
+    if (mode == MODE_PRES) of << "level\n";
+    of << horizontal_border << '\n';
     for (int r=0; r<grid_sz; ++r) {
-        outfile << '|';
+        of << '|';
         for (int c=0; c<grid_sz; ++c) {
-            outfile << grid[r][c]->val << '|';
+            if (mode == MODE_VAL) of << grid[r][c]->val << '|';
+            if (mode == MODE_PRES)of << grid[r][c]->level << '|';
         }
-        outfile << '\n' << horizontal_border << '\n';
+        of << '\n' << horizontal_border << '\n';
     }
 }
+
+void simstate::write_unocc(std::string fn, int lvl, bool app=false) {
+    std::ofstream of;
+    if (app) of.open(fn, std::ios::app);
+    else of.open(fn);
+
+    of << "LEVEL = " << lvl << ": ";
+    node* cur = unocc_w_val[lvl]->next;
+    while (cur) {
+        assert((cur->level == lvl));
+        of << "(" << cur->r << ", " << cur->c << ") ";
+        cur = cur->next;
+    }
+    of << '\n';
+}
+
 
 
 
@@ -210,53 +268,36 @@ void take_a_step(int cur, int ones) {
 // }
 
 
-void simstate::place_cluster(int r, int c, int v, int index) {
-    std::vector<int> cluster = startcluster_sets[v][index];
-    int i = 0;
-    for (int rp=0; rp<3; ++rp) {
-        for (int cp=0; cp<3; ++cp) {
-            grid[r+rp][c+cp]->val = cluster[i];
-            ++i;
-        }
-    }
-}
 
 
-
-
-
-int main() {
+void test() {
     std::string out = "out.txt";
     int n_pebbles = 2;
     int rad = ceil(log2f64(174*n_pebbles));
 
     // printf("%u\n", rad);
 
-
     int grid_sz = (2*rad + 1)*n_pebbles *2 +1;
-
-    std::vector<std::vector<std::vector<int>>> startcluster_sets = std::vector<std::vector<std::vector<int>>>(9);
-    // for (int i=2; i<9; ++i) {
-    //     startcluster_sets[i] = iter_startcluster(i);
-    // }
-    // for (auto all: startcluster_sets) if (all.size()) for (auto elt: all) {
-    //     int i=0;
-    //     for (int r=0; r<3; ++r) {
-    //         for (int c=0; c<3; ++c) {
-    //             if (elt[i]) std::cout << elt[i];
-    //             else std::cout << ".";
-    //             ++i;
-    //         } 
-    //         // std::cout << std::endl;
-    //     }std::cout << std::endl;
-    // }
 
 
     //testing 
     simstate state = simstate(10, n_pebbles);
     state.place_cluster(3, 3, 2, 0);
-    state.print_state(out);
+    state.write_state(out);
+    state.write_state(out, true, MODE_PRES);
+    state.write_unocc(out, 4, true);
+
+    state.place_tile(4,3,3);
+    state.write_state(out, true);
+    state.write_state(out, true, MODE_PRES);
+    state.write_unocc(out, 4, true);
+    state.write_unocc(out, 5, true);
+
+}
 
 
-    return 0;
+
+int main() {
+    
+    test();
 }
