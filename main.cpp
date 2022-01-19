@@ -279,8 +279,6 @@ void test() {
 
     int grid_sz = (2*rad + 1)*n_pebbles *2 +1;
 
-
-    //testing 
     simstate state = simstate(10, n_pebbles);
     state.place_cluster(3, 3, 2, 0);
     state.write_state(out);
@@ -292,7 +290,6 @@ void test() {
     state.write_state(out, true, MODE_PRES);
     state.write_unocc(out, 4, true);
     state.write_unocc(out, 5, true);
-
 }
 
 
