@@ -10,6 +10,8 @@
 
 #define MODE_VAL  0
 #define MODE_PRES 1
+#define TO_LOG    32
+#define TO_RESULT 33
 
 
 struct node {
@@ -31,16 +33,17 @@ struct simstate {
     int cur_stone = 2;
     int rem_ones;
     std::vector<std::vector<node*>> grid;
-    std::vector<node*> newly_acsble_1s = {};
     std::vector<node*> unocc_w_val;
     std::vector<std::vector<std::vector<int>>> startcluster_sets = 
         std::vector<std::vector<std::vector<int>>>(9);
     std::vector<bool> stone_used;
-
+    std::vector<std::vector<node*>> ones_list = {};
     int maxv = 1;
     // std::vector<std::vector<node*>> bestgrid;
-    std::string path;
+    std::string log_path, result_path;
 
+
+    // functions
     simstate(int grid_sz, int rem_ones, std::string path);
     ~simstate();
 
@@ -51,24 +54,29 @@ struct simstate {
     void adjust(int r, int c, int dv);
     void place_cluster(int r, int c, int v, int index);
     void unplace_cluster(int r, int c);
+    void place_ones(std::vector<int> &choice_arr);
+    void unplace_ones(std::vector<int> &choice_arr);
 
     void try_place_stone();
+    void try_place_ones();
     void try_place_cluster(int r, int c, int v);
 
     void step();
     void save_maximum();
 
-    void write_blank();
-    void write_state(bool app, int mode);
-    void write_unocc(int lvl, bool app);
-    void write_stones_used(int mxm, bool app);
+    void write_blank(int dest);
+    void write_state(int dest, bool app, int mode, std::vector<int> bounds);
+    void write_unocc(int dest, int lvl, bool app);
+    void write_stones_used(int dest, int mxm, bool app);
+    void write_state_trimmed(int dest,  bool app, int mode);
 };
 
 
 simstate::simstate(int grid_sz, int rem_ones, std::string path) {
     this->grid_sz = grid_sz;
     this->rem_ones = rem_ones;
-    this->path = path;
+    this->log_path = path + "_log.txt";
+    this->result_path = path + ".txt";
 
     stone_used = std::vector<bool>(174*rem_ones, false);
 
@@ -167,8 +175,11 @@ void simstate::place_tile(int r, int c, int v) {
     }
     stone_used[v] = true;
 
-    newly_acsble_1s = {};
-    if (!rem_ones) return;
+    std::vector<node*> newly_acsble_1s = {};
+    if (!rem_ones) {
+        ones_list.push_back(newly_acsble_1s);
+        return;
+    }
 
     for (int rp = r-2; rp <= r+2; ++rp) {
         for (int cp = c-2; cp <= c+2; ++cp) {
@@ -180,7 +191,7 @@ void simstate::place_tile(int r, int c, int v) {
             }
         }
     }
-    
+    ones_list.push_back(newly_acsble_1s);
 }
 
 void simstate::unplace_tile(int r, int c) {
@@ -201,6 +212,7 @@ void simstate::unplace_tile(int r, int c) {
     }
     stone_used[grid[r][c]->val] = false;
     grid[r][c]->val = 0;
+    ones_list.pop_back();
 }
 
 // Always inserts at the head of list (becomes the node pointed to by unocc_w_val[i]->next)
@@ -279,20 +291,22 @@ void simstate::unplace_cluster(int r, int c) {
 
 
 // printing for visualization
-void simstate::write_state(bool app=false, int mode=MODE_VAL) {
+void simstate::write_state(int dest, bool app=false, int mode=MODE_VAL, std::vector<int> bounds={}) {
+    std::string path = dest == TO_LOG ? log_path : result_path;
     std::ofstream of;
     if (app) of.open(path, std::ios::out | std::ios::app);
     else of.open(path);
+    if (bounds.empty()) bounds = {0, grid_sz, 0, grid_sz};
 
     int digits = ceil(log10(maxv))+1;
-    std::string horizontal_border = std::string((size_t)(digits+1)*grid_sz+1, '_');
+    std::string horizontal_border = std::string((size_t)(digits+1)*(bounds[3]-bounds[2])+1, '_');
 
     if (mode == MODE_VAL) of << "values\n";
     if (mode == MODE_PRES) of << "level\n";
     of << horizontal_border << '\n';
-    for (int r=0; r<grid_sz; ++r) {
+    for (int r=bounds[0]; r<bounds[1]; ++r) {
         of << '|';
-        for (int c=0; c<grid_sz; ++c) {
+        for (int c=bounds[2]; c<bounds[3]; ++c) {
             if (mode == MODE_VAL) {
                 of << std::setw(digits);
                 if (grid[r][c]->val) of << grid[r][c]->val;
@@ -311,8 +325,8 @@ void simstate::write_state(bool app=false, int mode=MODE_VAL) {
     of.close();
 }
 
-void simstate::write_unocc(int lvl, bool app=false) {
-    std::ofstream of;
+void simstate::write_unocc(int dest, int lvl, bool app=false) {
+    std::string path = dest == TO_LOG ? log_path : result_path;std::ofstream of;
     if (app) of.open(path, std::ios::out | std::ios::app);
     else of.open(path);
 
@@ -327,7 +341,8 @@ void simstate::write_unocc(int lvl, bool app=false) {
     of.close();
 }
 
-void simstate::write_stones_used(int mxm, bool app=false) {
+void simstate::write_stones_used(int dest, int mxm, bool app=false) {
+    std::string path = dest == TO_LOG ? log_path : result_path;
     std::ofstream of;
     if (app) of.open(path, std::ios::out | std::ios::app);
     else of.open(path);
@@ -339,17 +354,37 @@ void simstate::write_stones_used(int mxm, bool app=false) {
     of.close();
 }
 
-void simstate::write_blank() {
+void simstate::write_blank(int dest) {
+    std::string path = dest == TO_LOG ? log_path : result_path;
     std::ofstream of;
     of.open(path, std::ios::trunc);
     of.close();
 }
 
+void simstate::write_state_trimmed(int dest, bool app=false, int mode=MODE_VAL) {
+    int l = grid[0].size();
+    int r = 0;
+    int u = grid.size();
+    int d = 0;
+    for (int y=0; y<grid.size(); ++y) {
+        for (int x=0; x<grid[0].size(); ++x) {
+            if (grid[y][x]->val>0) {
+                l = std::min(l, x);
+                r = std::max(r, x+1);
+                u = std::min(u, y);
+                d = std::max(d, y+1);
+            }
+        }
+    }
+    std::cerr << u << d << l << r << std::endl;
+    write_state(dest, app, mode, {u,d,l,r});
+}
+
 void simstate::save_maximum() {
     maxv = cur_stone-1;
-    write_state(true);
+    write_state_trimmed(TO_RESULT, true);
     std::ofstream of;
-    of.open(path, std::ios::app);
+    of.open(result_path, std::ios::app);
     of << "CURRENT BEST\n";
     of.close();
 }
@@ -359,7 +394,7 @@ void simstate::save_maximum() {
 
 void simstate::try_place_stone() {
     // write_state(true);
-    write_stones_used(50, true);
+    write_stones_used(TO_LOG, 50, true);
     int old_cur_stone = cur_stone;
     while(stone_used[cur_stone]) ++cur_stone;
     node* cur = unocc_w_val[cur_stone]->next;
@@ -375,7 +410,6 @@ void simstate::try_place_stone() {
     while (cur) {
         if (!cur->val) {
             place_tile(cur->r, cur->c, cur_stone);
-            // call loop
             step();
             unplace_tile(cur->r, cur->c);
         } 
@@ -384,6 +418,21 @@ void simstate::try_place_stone() {
     cur_stone = old_cur_stone;
 }
 
+
+void simstate::try_place_ones() {
+    int n_options = ones_list.back().size();
+    // if (!rem_ones || !n_options) return;
+
+    for (int cnt=1; cnt<=rem_ones; ++cnt) {
+        std::vector<int> choice_arr = std::vector<int>(n_options, 0);
+        for (int i=0; i<cnt; ++i) choice_arr[i] = 1;
+        do {
+            // place_ones(choice_arr);
+            step();
+            // unplace_ones(choice_arr);
+        } while (next_combination(choice_arr));
+    }
+}
 
 void simstate::try_place_cluster(int r, int c, int v) {
     for (int i=0; i<
@@ -400,6 +449,7 @@ void simstate::step() {
     // A FEW OPTIONS
     // -- place tile cur
     // -- if 'ones > 0', place isolated 1 in the fresh outer border
+    //if (rem_ones && ones_list.back().size()) try_place_ones();
     try_place_stone();
 }
 
@@ -408,7 +458,7 @@ void simstate::step() {
 // ===== SOME TEST CASES
 
 void test() {
-    std::string out = "testlogs/out.txt";
+    std::string out = "testlogs/test";
     int n_pebbles = 2;
     int rad = ceil(log2f64(174*n_pebbles));
 
@@ -418,68 +468,68 @@ void test() {
 
     simstate state = simstate(10, n_pebbles, out);
     state.place_cluster(3, 3, 2, 6);
-    state.write_state();
-    state.write_state(true, MODE_PRES);
-    state.write_unocc(3, true);
-    state.write_unocc(4, true);
+    state.write_state(TO_LOG);
+    state.write_state(TO_LOG, true, MODE_PRES);
+    state.write_unocc(TO_LOG, 3, true);
+    state.write_unocc(TO_LOG, 4, true);
 
 
     // place a stone
     state.place_tile(4,3,3);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
-    state.write_unocc(3, true);
-    state.write_unocc(4, true);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
+    state.write_unocc(TO_LOG, 3, true);
+    state.write_unocc(TO_LOG, 4, true);
 
     // place another stone
     state.place_tile(4,2,4);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
-    state.write_unocc(3, true);
-    state.write_unocc(4, true);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
+    state.write_unocc(TO_LOG, 3, true);
+    state.write_unocc(TO_LOG, 4, true);
 
     // undo placing the stones
     state.unplace_tile(4,2);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
-    state.write_unocc(3, true);
-    state.write_unocc(4, true);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
+    state.write_unocc(TO_LOG, 3, true);
+    state.write_unocc(TO_LOG, 4, true);
 
     state.unplace_tile(4,3);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
-    state.write_unocc(3, true);
-    state.write_unocc(4, true);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
+    state.write_unocc(TO_LOG, 3, true);
+    state.write_unocc(TO_LOG, 4, true);
 }
 
-
 void cluster_test() {
-    std::string path = "testlogs/cluster_test.txt";
+    std::string path = "testlogs/cluster_test";
     int n_pebbles = 2;
     int rad = ceil(log2f64(174*n_pebbles));
     int grid_sz = 21;
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.place_cluster(3,3,2,6);
-    state.write_state();
-    state.write_state(true, MODE_PRES);
+    state.write_state(TO_LOG);
+    state.write_state(TO_LOG, true, MODE_PRES);
     state.place_tile(4,3,3);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
     state.unplace_tile(4,3);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
     state.unplace_cluster(3,3);
-    state.write_state(true);
-    state.write_state(true, MODE_PRES);
+    state.write_state(TO_LOG, true);
+    state.write_state(TO_LOG, true, MODE_PRES);
 }
 
 void simple_loop() {
-    std::string path = "testlogs/simple_loop.txt";
+    std::string path = "testlogs/simple_loop";
     int n_pebbles = 2;
     int rad = ceil(log2f64(174*n_pebbles));
     int grid_sz = 21;
     simstate state = simstate(grid_sz, n_pebbles, path);
-    state.write_blank();
+    state.write_blank(TO_LOG);
+    state.write_blank(TO_RESULT);
     state.try_place_cluster(10,10,2);
 }
 
