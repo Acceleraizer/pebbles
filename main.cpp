@@ -379,7 +379,7 @@ void simstate::unplace_cluster(int r, int c, int v, int index) {
     rem_ones += v;
 
     for (int rp=r-2; rp<r+5; ++rp) {
-        for (int cp=c-2; cp<5; ++cp) {
+        for (int cp=c-2; cp<c+5; ++cp) {
             if(!(r<=rp && rp<r+3 && c<=cp && cp<c+3)) {
                 --grid[rp][cp]->onesscore;
             }
@@ -962,8 +962,6 @@ int main(int argc, char* argv[]) {
         maxn = atoi(argv[2]);
         if (!maxn) return 1;
     }
-    
-
 
     auto clock = std::chrono::high_resolution_clock::now();
     for (int n=minn; n<=maxn; ++n) {
