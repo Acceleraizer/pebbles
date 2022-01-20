@@ -22,6 +22,14 @@ can be turned into:
 1..  
 .2.  
 ..1  
+and then into:  
+13.  
+.2.  
+..1  
+
+(Note: only the sum of the 8-neighbors at the time of placing matters.)
+
+Game ends when no more stones can be placed in accordance with the rules. The objective is to maximize the highest number present on the board (in other words, place the maximum number of numbered stones given n brown stones).
 
 ## OEIS
 
