@@ -582,6 +582,12 @@ void simstate::save_maximum(bool newrecord) {
 
 
 // ================== main loops
+void print_time_elapsed(std::string pretext, std::chrono::_V2::system_clock::time_point &start_time) {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now-start_time);
+    std::cerr << pretext << std::fixed << std::setprecision(3) << (float) duration.count() /1000.0 << "s" << std::endl;
+    start_time = now;
+}
 
 void simstate::try_place_stone() {
     // write_state(true);
@@ -639,11 +645,14 @@ void simstate::try_place_cluster(int r, int c, int v) {
 }
 
 void simstate::try_place_firstcluster(int r, int c, int v) {
+    auto clock = std::chrono::high_resolution_clock::now();
     for (int i: firstcluster_indices[v]) {
-        std::cerr << std::bitset<8>(cluster_sets[v][i]) << std::endl;
+        std::cerr << std::bitset<8>(cluster_sets[v][i]);
         place_cluster(r, c, v, i);
         step();
         unplace_cluster(r, c, v, i);
+        std::cerr << " --- ";
+        print_time_elapsed("Time elapsed from last time point: ", clock);
     }
 }
 
@@ -934,12 +943,7 @@ void run_test_suite() {
 }
 
 
-void print_time_elapsed(std::chrono::_V2::system_clock::time_point &start_time) {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now-start_time);
-    std::cerr << "Time elapsed from last time point: " << std::fixed << std::setprecision(3) << (float) duration.count() /1000.0 << "s" << std::endl;
-    start_time = now;
-}
+
 
 int main(int argc, char* argv[]) {
     // run_test_suite();
@@ -954,7 +958,7 @@ int main(int argc, char* argv[]) {
     for (int n=2; n<=maxn; ++n) {
         std::cerr << "Computing " << n << "-stone case" << std::endl;
         n_stones_no_multiple_clusters(n);
-        print_time_elapsed(clock);
+        print_time_elapsed("Total time elapsed for this case: ", clock);
     }
 
 }
