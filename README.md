@@ -25,4 +25,6 @@ can be turned into:
 
 ## OEIS
 
-The sequence https://oeis.org/A337663 tracks the maximum value of stones that can be placed for the n-stone game. 
+The sequence https://oeis.org/A337663 tracks the maximum value of stones that can be placed for the n-stone game. Each subsequent term takes ~200x longer to compute. Only up to a(6) is known as of 19 Jan 2022.
+
+My program computes a(4) in 30s and a(5) in roughly 7ks. (Note: I skip some cases I consider unlikely to be optimal, but regardless this strictly speaking only provides lower bounds). 
