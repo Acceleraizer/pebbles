@@ -1,2 +1,2 @@
 make: main.cpp
-	c++ main.cpp -o main.out -O3
+	g++ main.cpp -o main.out -O3
