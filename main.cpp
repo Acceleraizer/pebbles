@@ -9,6 +9,7 @@
 #include <cassert>
 #include <unordered_set>
 #include <bitset>
+#include <chrono>
 
 #define MODE_VAL  0
 #define MODE_PRES 1
@@ -32,21 +33,22 @@ struct node {
 
 struct simstate {
     int grid_sz;
-    int cur_stone = 2;
     int rem_ones;
     std::vector<std::vector<node*>> grid;
     std::vector<node*> unocc_w_val;
     // 8-bit number, clockwise numbering
     std::vector<std::vector<int>> cluster_sets = 
         std::vector<std::vector<int>>(9);
-    // remove symmetries
+    // same as above, but unique up to symmetries
     std::vector<std::vector<int>> firstcluster_indices = 
         std::vector<std::vector<int>>(9);
     std::vector<bool> stone_used;
     std::vector<std::vector<node*>> ones_list = {};
     int maxv = 1;
-    // std::vector<std::vector<node*>> bestgrid;
     std::string log_path, result_path;
+
+    int cur_stone = 1; 
+    // Next stone to place.
 
 
     // functions
@@ -60,7 +62,7 @@ struct simstate {
     void unplace_tile(int r, int c);
     void adjust(int r, int c, int dv);
     void place_cluster(int r, int c, int v, int index);
-    void unplace_cluster(int r, int c);
+    void unplace_cluster(int r, int c, int v, int index);
     void place_ones(std::vector<int> &choice_arr);
     void unplace_ones(std::vector<int> &choice_arr);
 
@@ -88,6 +90,7 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
     this->result_path = path + ".txt";
 
     stone_used = std::vector<bool>(174*rem_ones, false);
+    stone_used[1] = true;
 
     //initialize the ladder
     for (int i=0; i< 174*rem_ones; i++) {
@@ -203,19 +206,20 @@ void simstate::place_tile(int r, int c, int v) {
     grid[r][c]->val = v;
     for (int rp = r-1; rp <= r+1; ++rp) {
         for (int cp = c-1; cp <= c+1; ++cp) {
-            if (!(rp == r && cp == c)) {
+            if ((rp - r) || (cp - c)) {
                 adjust(rp, cp, v);
                 // std::cout << rp << " " << cp  << " : " << v << std::endl;
             }
         }
     }
     stone_used[v] = true;
+    while (stone_used[cur_stone]) ++cur_stone;
 
     std::vector<node*> newly_acsble_1s = {};
-    if (!rem_ones) {
-        ones_list.push_back(newly_acsble_1s);
-        return;
-    }
+    // if (!rem_ones) {
+    //     ones_list.push_back(newly_acsble_1s);
+    //     return;
+    // }
 
     for (int rp = r-2; rp <= r+2; ++rp) {
         for (int cp = c-2; cp <= c+2; ++cp) {
@@ -230,10 +234,11 @@ void simstate::place_tile(int r, int c, int v) {
 
 void simstate::unplace_tile(int r, int c) {
     ones_list.pop_back();
+    int v = grid[r][c]->val;
     for (int rp = r+1; rp >= r-1; --rp) {
         for (int cp = c+1; cp >= c-1; --cp) {
             if ((rp - r) || (cp - c)) {
-                adjust(rp, cp, -grid[r][c]->val);
+                adjust(rp, cp, -v);
                 // std::cout << rp << " " << cp  << std::endl;
             }
         }
@@ -245,11 +250,13 @@ void simstate::unplace_tile(int r, int c) {
             }
         }
     }
-    stone_used[grid[r][c]->val] = false;
+    stone_used[v] = false;
     grid[r][c]->val = 0;
+    while (!stone_used[cur_stone-1]) --cur_stone;
 }
 
-// Always inserts at the head of list (becomes the node pointed to by unocc_w_val[i]->next)
+// If v>0 (placing a tile), always inserts at the head of list (becomes the node pointed to by unocc_w_val[i]->next)
+// Else, restores the node back to its previous position based on its history
 // Updates the level
 void simstate::adjust(int r, int c, int dv) {
     if (!dv) return;
@@ -297,7 +304,6 @@ std::pair<int, int> code_to_coord(int index) {
 // Handles placing clusters
 void simstate::place_cluster(int r, int c, int v, int index) {
     int cluster = cluster_sets[v][index];
-    int i = 0;
     for (int i=0; i<8; ++i) {
         std::pair<int, int> coords = code_to_coord(i);
         int rp=coords.first, cp=coords.second;
@@ -323,6 +329,7 @@ void simstate::place_cluster(int r, int c, int v, int index) {
     }
 
     stone_used[v] = true;
+    while (stone_used[cur_stone]) ++cur_stone;
     rem_ones -= v;
 
     std::vector<node*> newly_acsble_1s = {};
@@ -341,22 +348,33 @@ void simstate::place_cluster(int r, int c, int v, int index) {
      ones_list.push_back(newly_acsble_1s);
 }
 
-void simstate::unplace_cluster(int r, int c) {
+void simstate::unplace_cluster(int r, int c, int v, int index) {
     ones_list.pop_back();
-    int v = grid[r+1][c+1]->val;
-    for (int rp=2; rp>=0; --rp) {
-        for (int cp=2; cp>=0; --cp) {
-            // Update levels
+    int cluster = cluster_sets[v][index];
+    grid[r+1][c+1]->val = 0;
+    for (int dr=1; dr>=-1; --dr) {
+        for (int dc=1; dc>=-1; --dc) {
+            if (dr || dc) {
+                adjust(r+1+dr, c+1+dc, -v);
+            }
+        }
+    }
+    for (int i=7; i>=0; --i) {
+        std::pair<int, int> coords = code_to_coord(i);
+        int rp=coords.first, cp=coords.second;
+        if (cluster & (1<<i)) {
+            grid[r+rp][c+cp]->val = 0;
             for (int dr=1; dr>=-1; --dr) {
                 for (int dc=1; dc>=-1; --dc) {
                     if (dr || dc) {
-                        adjust(r+rp+dr, c+cp+dc, -grid[r+rp][c+cp]->val);
+                        adjust(r+rp+dr, c+cp+dc, -1);
                     }
                 }
             }
-            grid[r+rp][c+cp]->val = 0;
         }
+        --grid[r+rp][c+cp]->onesscore;
     }
+    
     stone_used[v] = false;
     rem_ones += v;
 
@@ -372,15 +390,16 @@ void simstate::unplace_cluster(int r, int c) {
 
 void simstate::place_ones(std::vector<int> &choice_arr) {
     std::unordered_set<uintptr_t> update_set;
-    for (int i=0; i<choice_arr.size(); ++i) {
+    for (int i = 0; i < choice_arr.size(); ++i) {
         if (choice_arr[i]) {
             node* n = ones_list.back()[i];
             assert((!n->val));
             n->val = 1;
             --rem_ones;
-            for (int dr=-1; dr<=1; ++dr) {
-                for (int dc=-1; dc<=1; ++dc) {
-                    if (dr || dc) adjust(dr+n->r, dc+n->c, 1);
+            for (int dr = -1; dr <= 1; ++dr) {
+                for (int dc = -1; dc <= 1; ++dc) {
+                    // if (dr || dc) 
+                    adjust(dr+n->r, dc+n->c, 1);
                 }
             }
             for (int dr = -2; dr <= 2; ++dr) {
@@ -404,26 +423,25 @@ void simstate::place_ones(std::vector<int> &choice_arr) {
 void simstate::unplace_ones(std::vector<int> &choice_arr) {
     ones_list.pop_back();
     std::unordered_set<uintptr_t> update_set;
-    for (int i=choice_arr.size()-1; i>=0; --i) {
+    for (int i = choice_arr.size()-1; i >= 0; --i) {
         if (choice_arr[i]) {
             node* n = ones_list.back()[i];
             assert((n->val == 1));
             n->val = 0;
             ++rem_ones;
-            for (int dr=1; dr>=-1; --dr) {
-                for (int dc=1; dc>=-1; --dc) {
-                    if (dr || dc) adjust(dr+n->r, dc+n->c, -1);
+            for (int dr = 1; dr >= -1; --dr) {
+                for (int dc = 1; dc >= -1; --dc) {
+                    // if (dr || dc) 
+                    adjust(dr+n->r, dc+n->c, -1);
                 }
             }
-            for (int dr = -2; dr <= 2; ++dr) {
-                for (int dc = -2; dc <= 2; ++dc) {
+            for (int dr = 2; dr >= -2; --dr) {
+                for (int dc = 2; dc >= -2; --dc) {
                     update_set.insert((uintptr_t) grid[dr+n->r][dc+n->c]);
                 }
             }
         }
     }
-
-    std::vector<node*> newly_acsble_1s = {};
     for (auto p: update_set) {
         node* n = (node*) p;
         --n->onesscore;
@@ -553,11 +571,13 @@ void simstate::write_possible_ones(int dest, bool app=true) {
 
 void simstate::save_maximum(bool newrecord) {
     maxv = cur_stone-1;
-    write_state_trimmed(TO_RESULT, !newrecord);
-    std::ofstream of;
-    of.open(result_path, std::ios::app);
-    of << "CURRENT BEST : " << maxv << "\n";
-    of.close();
+    if (newrecord) {
+        std::ofstream of;
+        of.open(result_path);
+        of << "CURRENT BEST : " << maxv << "\n";
+        of.close();
+    }
+    write_state_trimmed(TO_RESULT);
 }
 
 
@@ -568,17 +588,17 @@ void simstate::try_place_stone() {
     // write_stones_used(TO_LOG, 50, true);
     // write_possible_ones(TO_LOG, true);
     // std::cerr << "STONE: " << cur_stone << std::endl;
-    int old_cur_stone = cur_stone;
+    // int old_cur_stone = cur_stone;
     // maxv = std::max(maxv, cur_stone);
-    while(stone_used[cur_stone]) ++cur_stone;
+    // while(stone_used[cur_stone]) ++cur_stone;
     node* cur = unocc_w_val[cur_stone]->next;
     
     if (!cur) {
         if (cur_stone-1 >= maxv) save_maximum(cur_stone-1>maxv);
-        cur_stone = old_cur_stone;
+        // cur_stone = old_cur_stone;
         return;
     }
-    // write_unocc(cur_stone, true);
+
     
     while (cur) {
         if (!cur->val) {
@@ -588,7 +608,7 @@ void simstate::try_place_stone() {
         } 
         cur = cur -> next;
     }
-    cur_stone = old_cur_stone;
+    // cur_stone = old_cur_stone;
 }
 
 
@@ -614,7 +634,7 @@ void simstate::try_place_cluster(int r, int c, int v) {
     for (int i=0; i<cluster_sets[v].size(); ++i) {
         place_cluster(r, c, v, i);
         step();
-        unplace_cluster(r, c);
+        unplace_cluster(r, c, v, i);
     }
 }
 
@@ -623,7 +643,7 @@ void simstate::try_place_firstcluster(int r, int c, int v) {
         std::cerr << std::bitset<8>(cluster_sets[v][i]) << std::endl;
         place_cluster(r, c, v, i);
         step();
-        unplace_cluster(r, c);
+        unplace_cluster(r, c, v, i);
     }
 }
 
@@ -635,7 +655,12 @@ void simstate::step() {
     // -- if 'ones > 0', place isolated 1 in the fresh outer border
 
     // NOT DONE: placing cluster
+    // write_stones_used(TO_LOG, 50, true);
+    // if (cur_stone >= 8) {
+    //     write_possible_ones(TO_LOG);
+    // }
     if (rem_ones && ones_list.back().size()) try_place_ones();
+    // write_unocc(TO_LOG, cur_stone);
     try_place_stone();
     
     
@@ -707,7 +732,7 @@ void cluster_test() {
     state.unplace_tile(4,3);
     state.write_state(TO_LOG, true);
     state.write_state(TO_LOG, true, MODE_PRES);
-    state.unplace_cluster(3,3);
+    state.unplace_cluster(3,3,2, 6);
     state.write_state(TO_LOG, true);
     state.write_state(TO_LOG, true, MODE_PRES);
 }
@@ -767,20 +792,16 @@ void test_ones() {
     state.write_unocc(TO_LOG, 1);
 }
 
-void three_stones() {
-    std::string path = "testlogs/three_stones";
-    int n_pebbles = 3;
+void n_stones_no_multiple_clusters(int n_pebbles) {
+    std::string path = "testlogs/" + std::to_string(n_pebbles) + "_stones" ;
     int rad = ceil(log2f64(174*n_pebbles));
-    int grid_sz = 40;
+    int grid_sz = (2*n_pebbles+1)*rad;
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.write_blank(TO_LOG);
     state.write_blank(TO_RESULT);
-    // state.try_place_firstcluster(grid_sz/2,grid_sz/2,2);
-    
-    state.place_cluster(grid_sz/2, grid_sz/2, 2, state.firstcluster_indices[2][3]);
-    state.step();
-
-    // try with 3 cluster
+    for (int s=2; s<=n_pebbles; ++s) {
+        state.try_place_firstcluster(grid_sz/2, grid_sz/2, s);
+    }
 }
 
 void three_stones_debug() {
@@ -792,27 +813,35 @@ void three_stones_debug() {
     state.write_blank(TO_LOG);
     state.place_cluster(6,4,2,state.firstcluster_indices[2][3]);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 3);
 
     state.place_tile(6,5,3);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 4);
 
     state.place_tile(5,6,4);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 5);
 
     state.place_tile(5,7,5);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 6);
 
     state.place_tile(7,4,6);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 7);
 
     state.place_tile(8,3,7);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 8);
 
     state.place_tile(9,3,8);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 9);
 
     state.place_tile(4,6,9);
     state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 10);
 
     std::vector<int> choice_arr = {1,0,0,0,0};
     state.place_ones(choice_arr);
@@ -820,6 +849,7 @@ void three_stones_debug() {
     state.write_unocc(TO_LOG, 10);
 
     state.place_tile(3,5,10);
+    state.maxv = 10;
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 11);
 
@@ -903,8 +933,28 @@ void run_test_suite() {
     test_ones();
 }
 
-int main() {
-    run_test_suite();
-    three_stones_debug();
-    three_stones();
+
+void print_time_elapsed(std::chrono::_V2::system_clock::time_point &start_time) {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now-start_time);
+    std::cerr << "Time elapsed from last time point: " << std::fixed << std::setprecision(3) << (float) duration.count() /1000.0 << "s" << std::endl;
+    start_time = now;
+}
+
+int main(int argc, char* argv[]) {
+    // run_test_suite();
+    // three_stones_debug();
+
+    if (argc != 2) return 1;
+    int maxn = atoi(argv[1]);
+    if (!maxn) return 1;
+
+
+    auto clock = std::chrono::high_resolution_clock::now();
+    for (int n=2; n<=maxn; ++n) {
+        std::cerr << "Computing " << n << "-stone case" << std::endl;
+        n_stones_no_multiple_clusters(n);
+        print_time_elapsed(clock);
+    }
+
 }
