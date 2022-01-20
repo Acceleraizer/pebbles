@@ -91,38 +91,38 @@ void test_ones() {
     state.write_blank(TO_LOG);
     state.write_possible_ones(TO_LOG);
     state.place_cluster(4, 4, 2, 0);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
     std::vector<int> choice_arr = {1};
     state.place_ones(choice_arr);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
     state.place_tile(4,6,3);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
     state.place_tile(3,6,4);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
     state.unplace_tile(3,6);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
     state.unplace_tile(4,6);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
     state.unplace_ones(choice_arr);
-    // state.write_state(TO_LOG);
+    std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 }
@@ -133,7 +133,7 @@ void three_stones_debug() {
     std::string path = "testlogs/three_stones_debug";
     int n_pebbles = 3;
     int rad = ceil(log2f64(174*n_pebbles));
-    int grid_sz = 14;
+    int grid_sz = 16;
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.write_blank(TO_LOG);
     state.place_cluster(6,4,2,state.firstcluster_indices[2][3]);
@@ -254,9 +254,15 @@ void three_stones_debug() {
 
 void run_test_suite() {
     test();
+    std::cerr << "Test done \n";
     cluster_test();
+    std::cerr << "Cluster test done \n";
     simple_loop();
+    std::cerr << "Simple loop done\n";
     test_ones();
+    std::cerr << "Test ones done \n";
+    // three_stones_debug();
+    // std::cerr << "Three stones debug done \n";
 }
 
 

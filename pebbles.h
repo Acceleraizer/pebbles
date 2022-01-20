@@ -36,7 +36,8 @@ struct simstate {
     std::vector<std::vector<int>> firstcluster_indices = 
         std::vector<std::vector<int>>(9);
     std::vector<bool> stone_used;
-    std::vector<std::vector<node*>> ones_list = {};
+    std::vector<std::pair<int, std::vector<node*>>> ones_list;
+    int depth = 0;
     int maxv = 1;
     std::string log_path, result_path;
 
