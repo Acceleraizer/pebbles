@@ -27,8 +27,9 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
         unocc_w_val.push_back(newnnode);
     }
 
-    //initialize ones_list
+    //initialize ones_list related structures
     ones_list = std::vector<std::pair<int, std::vector<node*>>>(174*rem_ones, {0, std::vector<node*>(50, nullptr)});
+    choice_arrays = std::vector<std::vector<int>>(174*rem_ones, std::vector<int>(50, 0));
 
     grid = std::vector<std::vector<node*>>(grid_sz, std::vector<node*>(grid_sz));
     for (int r=0; r<grid_sz; ++r) {
@@ -53,8 +54,8 @@ simstate::~simstate() {
     for (node* n: unocc_w_val) delete n;
 }
 
-bool next_combination (std::vector<int> &arr) {
-    int i = arr.size() - 1;
+bool next_combination (int sz, std::vector<int> &arr) {
+    int i = sz -1;
     if (arr[i] == 0) {
         while (i && arr[i] == 0) {
             --i;
@@ -83,8 +84,8 @@ bool next_combination (std::vector<int> &arr) {
     return true;
 }
 
-void print_combination(std::vector<int> &arr) {
-    for (int i=0; i<arr.size(); ++i) {
+void print_combination(int n, std::vector<int> &arr) {
+    for (int i=0; i<n; ++i) {
         if (arr[i]) printf("%u ", i+1);
     }
     std::cout << std::endl;
@@ -103,14 +104,13 @@ void simstate::init_clusters(int n) {
             process_symmetries(n, cluster);
         }
         
-    } while (next_combination(start));
+    } while (next_combination(8, start));
 }
 
 void simstate::process_symmetries(int n, int cluster) {
     // std::cout << (n) << ": " <<  std::bitset<8>(cluster) << std::endl;
     std::unordered_set<int> syms;
     for(int q=0; q<4; ++q) {
-        // std::cout << (n) << ":--- " <<  std::bitset<8>(cluster) << std::endl;
         syms.insert(cluster);
         cluster <<=2;
         int ovf = cluster - (cluster %256);
@@ -122,7 +122,6 @@ void simstate::process_symmetries(int n, int cluster) {
             + ((cluster & (1<<6)) >> 2) + ((cluster & (1<<4)) << 2)
             + (cluster & ((1<<1) + (1<<5)));
     for (int q=0; q<4; ++q) {
-        // std::cout << (n) << ":||| " <<  std::bitset<8>(refl) << std::endl;
         syms.insert(refl);
         refl <<=2;
         int ovf = refl - (refl %256);
@@ -160,7 +159,6 @@ void simstate::place_tile(int r, int c, int v) {
             }
         }
     }
-    // ones_list.push_back(newly_acsble_1s);
     ones_list[depth].first = ones_i;
 }
 
@@ -280,7 +278,6 @@ void simstate::place_cluster(int r, int c, int v, int index) {
 }
 
 void simstate::unplace_cluster(int r, int c, int v, int index) {
-    // ones_list.pop_back();
     int cluster = cluster_sets[v][index];
     grid[r+1][c+1]->val = 0;
     for (int dr=1; dr>=-1; --dr) {
@@ -320,10 +317,10 @@ void simstate::unplace_cluster(int r, int c, int v, int index) {
 }
 
 
-void simstate::place_ones(std::vector<int> &choice_arr) {
+void simstate::place_ones() {
     std::unordered_set<uintptr_t> update_set;
-    for (int i = 0; i < choice_arr.size(); ++i) {
-        if (choice_arr[i]) {
+    for (int i = 0; i < ones_list[depth].first; ++i) {
+        if (choice_arrays[depth][i]) {
             node* n = ones_list[depth].second[i];
             assert((!n->val));
             n->val = 1;
@@ -357,12 +354,11 @@ void simstate::place_ones(std::vector<int> &choice_arr) {
 }
 
 
-void simstate::unplace_ones(std::vector<int> &choice_arr) {
-    // ones_list.pop_back();
+void simstate::unplace_ones() {
     --depth;
     std::unordered_set<uintptr_t> update_set;
-    for (int i = choice_arr.size()-1; i >= 0; --i) {
-        if (choice_arr[i]) {
+    for (int i = ones_list[depth].first-1; i >= 0; --i) {
+        if (choice_arrays[depth][i]) {
             node* n = ones_list[depth].second[i];
             assert((n->val == 1));
             n->val = 0;
@@ -429,14 +425,14 @@ void simstate::try_place_ones() {
     // if (!rem_ones || !n_options) return;
 
     for (int cnt=1; cnt<=rem_ones; ++cnt) {
-        std::vector<int> choice_arr = std::vector<int>(n_options, 0);
-        for (int i=0; i<cnt; ++i) choice_arr[i] = 1;
+        for (int i=0; i<cnt; ++i) choice_arrays[depth][i] = 1;
+        for (int i=cnt; i<n_options; ++i) choice_arrays[depth][i] = 0;
         do {
             // print_combination(choice_arr);
-            place_ones(choice_arr);
+            place_ones();
             step();
-            unplace_ones(choice_arr);
-        } while (next_combination(choice_arr));
+            unplace_ones();
+        } while (next_combination(n_options, choice_arrays[depth]));
     }
 }
 
@@ -460,6 +456,23 @@ void simstate::try_place_firstcluster(int r, int c, int v) {
     }
 }
 
+void simstate::try_place_fixedones(std::vector<std::pair<int, int>> &ones) {
+    auto save_list = ones_list[depth];
+    std::vector<int> save_choice_list = choice_arrays[depth];
+    std::pair<int, std::vector<node*>> repl;
+    repl.first = ones.size();
+    for (auto p: ones) {
+        repl.second.push_back(grid[p.first][p.second]);
+    }
+    for (int i=0; i<repl.first; ++i) choice_arrays[depth][i] = 1; 
+    place_ones();
+    step();
+    unplace_ones();
+    ones_list[depth] = save_list;
+    choice_arrays[depth] = save_choice_list;
+}
+
+
 
 
 void simstate::step() {
@@ -472,9 +485,10 @@ void simstate::step() {
     // if (cur_stone >= 8) {
     //     write_possible_ones(TO_LOG);
     // }
+    try_place_stone();
     if (rem_ones && ones_list[depth].first) try_place_ones();
     // write_unocc(TO_LOG, cur_stone);
-    try_place_stone();
+    
     
     
 }

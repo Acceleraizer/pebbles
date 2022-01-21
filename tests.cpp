@@ -95,8 +95,8 @@ void test_ones() {
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
-    std::vector<int> choice_arr = {1};
-    state.place_ones(choice_arr);
+    state.choice_arrays[state.depth][0] = 1;
+    state.place_ones();
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
@@ -121,7 +121,7 @@ void test_ones() {
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
 
-    state.unplace_ones(choice_arr);
+    state.unplace_ones();
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
@@ -168,8 +168,8 @@ void three_stones_debug() {
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 10);
 
-    std::vector<int> choice_arr = {1,0,0,0,0};
-    state.place_ones(choice_arr);
+    state.choice_arrays[state.depth] = {1,0,0,0,0};
+    state.place_ones();
     state.write_state(TO_LOG);
     state.write_unocc(TO_LOG, 10);
 

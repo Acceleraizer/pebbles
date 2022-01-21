@@ -37,6 +37,7 @@ struct simstate {
         std::vector<std::vector<int>>(9);
     std::vector<bool> stone_used;
     std::vector<std::pair<int, std::vector<node*>>> ones_list;
+    std::vector<std::vector<int>> choice_arrays;
     int depth = 0;
     int maxv = 1;
     std::string log_path, result_path;
@@ -55,13 +56,14 @@ struct simstate {
     void adjust(int r, int c, int dv);
     void place_cluster(int r, int c, int v, int index);
     void unplace_cluster(int r, int c, int v, int index);
-    void place_ones(std::vector<int> &choice_arr);
-    void unplace_ones(std::vector<int> &choice_arr);
+    void place_ones();
+    void unplace_ones();
 
     void try_place_stone();
     void try_place_ones();
     void try_place_cluster(int r, int c, int v);
     void try_place_firstcluster(int r, int c, int v);
+    void try_place_fixedones(std::vector<std::pair<int, int>>&);
 
     void step();
     void save_maximum(bool newrecord);
@@ -74,6 +76,8 @@ struct simstate {
     void write_possible_ones(int dest, bool app=true);
 };
 
+bool next_combination (int sz, std::vector<int> &arr);
+void print_combination(int n, std::vector<int> &arr);
 
 void n_stones_no_multiple_clusters(int n_pebbles);
 void print_time_elapsed(std::string pretext, std::chrono::_V2::system_clock::time_point &start_time);
