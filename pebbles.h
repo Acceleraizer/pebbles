@@ -10,6 +10,8 @@
 #define TO_LOG    32
 #define TO_RESULT 33
 
+#define SCALE     174
+
 struct node {
     int val = 0;
     int level = 0;
@@ -17,10 +19,13 @@ struct node {
     node* prev = nullptr;
     node* next = nullptr;
     std::vector<node*> parent_history;
+    int hist_i = 0;
 
     int r,c;
 
-    node(int r, int c) {this->r = r; this->c = c;}
+    node(int r, int c) {
+        this->r = r; this->c = c;
+    }
 };
 
 

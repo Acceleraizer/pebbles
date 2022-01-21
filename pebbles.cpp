@@ -18,23 +18,24 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
     this->log_path = path + "_log.txt";
     this->result_path = path + ".txt";
 
-    stone_used = std::vector<bool>(174*rem_ones, false);
+    stone_used = std::vector<bool>(SCALE*rem_ones, false);
     stone_used[1] = true;
 
     //initialize the ladder
-    for (int i=0; i< 174*rem_ones; i++) {
+    for (int i=0; i< SCALE*rem_ones; i++) {
         node* newnnode = new node(-1, -1);
         unocc_w_val.push_back(newnnode);
     }
 
     //initialize ones_list related structures
-    ones_list = std::vector<std::pair<int, std::vector<node*>>>(174*rem_ones, {0, std::vector<node*>(50, nullptr)});
-    choice_arrays = std::vector<std::vector<int>>(174*rem_ones, std::vector<int>(50, 0));
+    ones_list = std::vector<std::pair<int, std::vector<node*>>>(SCALE*rem_ones, {0, std::vector<node*>(50, nullptr)});
+    choice_arrays = std::vector<std::vector<int>>(SCALE*rem_ones, std::vector<int>(50, 0));
 
     grid = std::vector<std::vector<node*>>(grid_sz, std::vector<node*>(grid_sz));
     for (int r=0; r<grid_sz; ++r) {
         for (int c=0; c<grid_sz; ++c) {
             grid[r][c] = new node(r, c);
+            grid[r][c]->parent_history = std::vector<node*>(SCALE*rem_ones, nullptr);
             grid[r][c]->next = unocc_w_val[0]->next;
             grid[r][c]->prev = unocc_w_val[0];
             if (unocc_w_val[0]->next) unocc_w_val[0]->next->prev = grid[r][c];
@@ -189,29 +190,31 @@ void simstate::unplace_tile(int r, int c) {
 // Else, restores the node back to its previous position based on its history
 // Updates the level
 void simstate::adjust(int r, int c, int dv) {
+    node* nn = grid[r][c];
     if (!dv) return;
-    if (grid[r][c]->next) {
-        grid[r][c]->prev->next = grid[r][c]->next;
-        grid[r][c]->next->prev = grid[r][c]->prev;
+    if (nn->next) {
+        nn->prev->next = nn->next;
+        nn->next->prev = nn->prev;
     } else {
-        grid[r][c]->prev->next = nullptr;
+        nn->prev->next = nullptr;
     }
-    grid[r][c]->level += dv;
-    int v = grid[r][c]->level;
+    nn->level += dv;
+    int v = nn->level;
 
     if (dv > 0) {
-        grid[r][c]->parent_history.push_back(grid[r][c]->prev);
-        grid[r][c]->next = unocc_w_val[v]->next;
-        if (grid[r][c]->next) grid[r][c]->next->prev = grid[r][c];
-        unocc_w_val[v]-> next = grid[r][c];
-        grid[r][c]->prev = unocc_w_val[v];
+        nn->parent_history[nn->hist_i] = nn->prev;
+        nn->next = unocc_w_val[v]->next;
+        if (nn->next) nn->next->prev = nn;
+        unocc_w_val[v]-> next = nn;
+        nn->prev = unocc_w_val[v];
+        ++nn->hist_i;
     }
     else if (dv < 0) {
-        grid[r][c]->prev = grid[r][c]->parent_history.back();
-        grid[r][c]->next = grid[r][c]->prev->next;
-        grid[r][c]->prev->next = grid[r][c];
-        if (grid[r][c]->next) grid[r][c]->next->prev = grid[r][c];
-        grid[r][c]->parent_history.pop_back();
+        --nn->hist_i;
+        nn->prev = nn->parent_history[nn->hist_i];
+        nn->next = nn->prev->next;
+        nn->prev->next = nn;
+        if (nn->next) nn->next->prev = nn;
     }
     
 }
@@ -496,7 +499,7 @@ void simstate::step() {
 
 void n_stones_no_multiple_clusters(int n_pebbles) {
     std::string path = "testlogs/" + std::to_string(n_pebbles) + "_stones" ;
-    int rad = ceil(log2f64(174*n_pebbles));
+    int rad = ceil(log2f64(SCALE*n_pebbles));
     int grid_sz = (2*n_pebbles+1)*rad;
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.write_blank(TO_LOG);
