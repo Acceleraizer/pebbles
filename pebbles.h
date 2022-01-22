@@ -26,6 +26,9 @@ struct node {
     node(int r, int c) {
         this->r = r; this->c = c;
     }
+
+    void attach(node* to);
+    void revert_attach();
 };
 
 
@@ -34,12 +37,15 @@ struct simstate {
     int rem_ones;
     std::vector<std::vector<node*>> grid;
     std::vector<node*> unocc_w_val;
+    node* graveyard;
+
     // 8-bit number, clockwise numbering
     std::vector<std::vector<int>> cluster_sets = 
         std::vector<std::vector<int>>(9);
     // same as above, but unique up to symmetries
     std::vector<std::vector<int>> firstcluster_indices = 
         std::vector<std::vector<int>>(9);
+
     std::vector<bool> stone_used;
     std::vector<std::pair<int, std::vector<node*>>> ones_list;
     std::vector<std::vector<int>> choice_arrays;

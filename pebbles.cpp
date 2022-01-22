@@ -12,6 +12,31 @@
 #include <bitset>
 
 
+void node::attach(node* to) {
+    prev->next = next;
+    if (next) next->prev = prev;
+
+    parent_history[hist_i] = prev;
+    next = to->next;
+    if (next) next->prev = this;
+    to->next = this;
+    prev = to;
+    ++hist_i;
+}
+
+void node::revert_attach() {
+    prev->next = next;
+    if (next) next->prev = prev;
+
+    --hist_i;
+    prev = parent_history[hist_i];
+    next = prev->next;
+    prev->next = this;
+    if (next) next->prev = this;
+}
+
+
+
 simstate::simstate(int grid_sz, int rem_ones, std::string path) {
     this->grid_sz = grid_sz;
     this->rem_ones = rem_ones;
@@ -26,6 +51,8 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
         node* newnnode = new node(-1, -1);
         unocc_w_val.push_back(newnnode);
     }
+    graveyard = new node(-1,-1);
+    unocc_w_val[0]->val = grid_sz*grid_sz;
 
     //initialize ones_list related structures
     ones_list = std::vector<std::pair<int, std::vector<node*>>>(SCALE*rem_ones, {0, std::vector<node*>(50, nullptr)});
@@ -53,6 +80,7 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
 simstate::~simstate() {
     for (auto r: grid) for (node* n: r) delete n;
     for (node* n: unocc_w_val) delete n;
+    delete graveyard;
 }
 
 bool next_combination (int sz, std::vector<int> &arr) {
@@ -161,9 +189,15 @@ void simstate::place_tile(int r, int c, int v) {
         }
     }
     ones_list[depth].first = ones_i;
+
+    //graveyard
+    grid[r][c]->attach(graveyard);
 }
 
 void simstate::unplace_tile(int r, int c) {
+    //graveyard
+    grid[r][c]->revert_attach();
+
     int v = grid[r][c]->val;
     for (int rp = r+1; rp >= r-1; --rp) {
         for (int cp = c+1; cp >= c-1; --cp) {
@@ -192,31 +226,12 @@ void simstate::unplace_tile(int r, int c) {
 void simstate::adjust(int r, int c, int dv) {
     node* nn = grid[r][c];
     if (!dv) return;
-    if (nn->next) {
-        nn->prev->next = nn->next;
-        nn->next->prev = nn->prev;
-    } else {
-        nn->prev->next = nullptr;
-    }
+
     nn->level += dv;
     int v = nn->level;
 
-    if (dv > 0) {
-        nn->parent_history[nn->hist_i] = nn->prev;
-        nn->next = unocc_w_val[v]->next;
-        if (nn->next) nn->next->prev = nn;
-        unocc_w_val[v]-> next = nn;
-        nn->prev = unocc_w_val[v];
-        ++nn->hist_i;
-    }
-    else if (dv < 0) {
-        --nn->hist_i;
-        nn->prev = nn->parent_history[nn->hist_i];
-        nn->next = nn->prev->next;
-        nn->prev->next = nn;
-        if (nn->next) nn->next->prev = nn;
-    }
-    
+    if (dv > 0) nn->attach(unocc_w_val[v]);
+    else nn->revert_attach();
 }
 
 // Converts between cluster encoding to offset from top-left
