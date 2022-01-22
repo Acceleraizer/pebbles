@@ -49,6 +49,7 @@ simstate::simstate(int grid_sz, int rem_ones, std::string path) {
     //initialize the ladder
     for (int i=0; i< SCALE*rem_ones; i++) {
         node* newnnode = new node(-1, -1);
+        newnnode->level = i;
         unocc_w_val.push_back(newnnode);
     }
     graveyard = new node(-1,-1);
@@ -190,15 +191,17 @@ void simstate::place_tile(int r, int c, int v) {
     }
     ones_list[depth].first = ones_i;
 
-    //graveyard
-    grid[r][c]->attach(graveyard);
+    // Update count
+    // grid[r][c]->attach(graveyard);
+    --unocc_w_val[v]->val;
 }
 
 void simstate::unplace_tile(int r, int c) {
-    //graveyard
-    grid[r][c]->revert_attach();
-
+    // Update count
+    // grid[r][c]->revert_attach();
     int v = grid[r][c]->val;
+    ++unocc_w_val[v]->val;
+
     for (int rp = r+1; rp >= r-1; --rp) {
         for (int cp = c+1; cp >= c-1; --cp) {
             if ((rp - r) || (cp - c)) {
@@ -227,8 +230,10 @@ void simstate::adjust(int r, int c, int dv) {
     node* nn = grid[r][c];
     if (!dv) return;
 
+    --unocc_w_val[nn->level]->val;
     nn->level += dv;
     int v = nn->level;
+    ++unocc_w_val[nn->level]->val;
 
     if (dv > 0) nn->attach(unocc_w_val[v]);
     else nn->revert_attach();
@@ -260,7 +265,7 @@ void simstate::place_cluster(int r, int c, int v, int index) {
             for (int dr=-1; dr<=1; ++dr) {
                 for (int dc=-1; dc<=1; ++dc) {
                     if (dr || dc) {
-                        adjust(r+rp+dr, c+cp+dc,1);
+                        adjust(r+rp+dr, c+cp+dc, 1);
                     }
                 }
             }
@@ -268,6 +273,7 @@ void simstate::place_cluster(int r, int c, int v, int index) {
         ++grid[r+rp][c+cp]->onesscore;
     }
     grid[r+1][c+1]->val = v;
+    
     for (int dr=-1; dr<=1; ++dr) {
         for (int dc=-1; dc<=1; ++dc) {
             if (dr || dc) {
@@ -275,6 +281,18 @@ void simstate::place_cluster(int r, int c, int v, int index) {
             }
         }
     }
+
+    // Update count
+    for (int i=0; i<8; ++i) {
+        std::pair<int, int> coords = code_to_coord(i);
+        int rp=coords.first, cp=coords.second;
+        if (cluster & (1<<i)) {
+            // grid[r+rp][c+cp]->attach(graveyard);
+            --unocc_w_val[grid[r+rp][c+cp]->level]->val;
+        }
+    }
+    // grid[r+1][c+1]->attach(graveyard);
+    --unocc_w_val[grid[r+1][c+1]->level]->val;
 
     stone_used[v] = true;
     while (stone_used[cur_stone]) ++cur_stone;
@@ -297,7 +315,20 @@ void simstate::place_cluster(int r, int c, int v, int index) {
 
 void simstate::unplace_cluster(int r, int c, int v, int index) {
     int cluster = cluster_sets[v][index];
+
+    // Update count
     grid[r+1][c+1]->val = 0;
+    // grid[r+1][c+1]->revert_attach();
+    ++unocc_w_val[grid[r+1][c+1]->level]->val;
+    for (int i=7; i>=0; --i) {
+        std::pair<int, int> coords = code_to_coord(i);
+        int rp=coords.first, cp=coords.second;
+        if (cluster & (1<<i)) {
+            // grid[r+rp][c+cp]->revert_attach();
+            ++unocc_w_val[grid[r+rp][c+cp]->level]->val;
+        }
+    }
+
     for (int dr=1; dr>=-1; --dr) {
         for (int dc=1; dc>=-1; --dc) {
             if (dr || dc) {
@@ -305,6 +336,7 @@ void simstate::unplace_cluster(int r, int c, int v, int index) {
             }
         }
     }
+
     for (int i=7; i>=0; --i) {
         std::pair<int, int> coords = code_to_coord(i);
         int rp=coords.first, cp=coords.second;
@@ -317,6 +349,7 @@ void simstate::unplace_cluster(int r, int c, int v, int index) {
                     }
                 }
             }
+            
         }
         --grid[r+rp][c+cp]->onesscore;
     }
@@ -343,6 +376,9 @@ void simstate::place_ones() {
             assert((!n->val));
             n->val = 1;
             --rem_ones;
+            n->attach(graveyard);
+            --unocc_w_val[1]->val;
+
             for (int dr = -1; dr <= 1; ++dr) {
                 for (int dc = -1; dc <= 1; ++dc) {
                     // if (dr || dc) 
@@ -392,6 +428,8 @@ void simstate::unplace_ones() {
                     update_set.insert((uintptr_t) grid[dr+n->r][dc+n->c]);
                 }
             }
+            n->revert_attach();
+            ++unocc_w_val[1]->val;
         }
     }
     

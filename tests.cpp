@@ -83,6 +83,13 @@ void simple_loop() {
     state.try_place_firstcluster(10,10,2);
 }
 
+void counter_print(int n, simstate &ss) {
+    for (int i=0; i<=n; ++i) {
+        std::cerr << i << ": " << ss.unocc_w_val[i]->val << ", ";
+    }
+    std::cerr << '\n';
+}
+
 void test_ones() {
     std::string path = "testlogs/test_ones";
     int n_pebbles = 4;
@@ -90,41 +97,56 @@ void test_ones() {
     simstate state = simstate(grid_sz, n_pebbles, path);
     state.write_blank(TO_LOG);
     state.write_possible_ones(TO_LOG);
+    counter_print(9, state);
+
     state.place_cluster(4, 4, 2, 0);
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 
     state.choice_arrays[state.depth][0] = 1;
     state.place_ones();
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 
     state.place_tile(4,6,3);
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 
     state.place_tile(3,6,4);
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 
     state.unplace_tile(3,6);
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 
     state.unplace_tile(4,6);
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 
     state.unplace_ones();
     std::cerr << state.depth << '\n';
     state.write_possible_ones(TO_LOG);
     state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
+
+    state.unplace_cluster(4, 4, 2, 0);
+    std::cerr << state.depth << '\n';
+    state.write_possible_ones(TO_LOG);
+    state.write_unocc(TO_LOG, 1);
+    counter_print(9, state);
 }
 
 
